@@ -1,0 +1,51 @@
+{
+  "name": "@printemps-tokyo/imappeek",
+  "version": "0.1.0",
+  "description": "Peek at recent messages in an IMAP mailbox from the terminal: list headers, read a message as text. Zero-dependency CLI.",
+  "type": "module",
+  "license": "MIT",
+  "author": "printemps.tokyo <develop@printemps.tokyo>",
+  "homepage": "https://github.com/printemps-tokyo/imappeek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/printemps-tokyo/imappeek.git"
+  },
+  "bugs": {
+    "url": "https://github.com/printemps-tokyo/imappeek/issues"
+  },
+  "keywords": [
+    "imap",
+    "email",
+    "mail",
+    "mime",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "imappeek": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  }
+}
