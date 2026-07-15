@@ -20,7 +20,7 @@ export type { ScanResult, ImapStatus } from "./protocol.js";
 export { ImapClient, ImapError } from "./imap.js";
 export type { ImapOptions, CommandResult } from "./imap.js";
 
-export { openMailbox, listRecent, showMessage } from "./session.js";
+export { openMailbox, listRecent, listUnseen, showMessage } from "./session.js";
 export type { MessageSummary, Credentials } from "./session.js";
 
 export { renderList, renderMessage } from "./render.js";

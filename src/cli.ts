@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { openMailbox, listRecent, showMessage } from "./session.js";
+import { openMailbox, listRecent, listUnseen, showMessage } from "./session.js";
 import { renderList, renderMessage } from "./render.js";
 
 const HELP = `imappeek - peek at recent messages in an IMAP mailbox
@@ -21,6 +21,7 @@ Options:
   --no-tls            Use a plaintext connection (not recommended)
   --mailbox <name>    Mailbox to open (default: INBOX)
   -n, --limit <n>     How many recent messages to list (default: 10)
+  --unseen            List only unread messages (IMAP SEARCH UNSEEN)
   --show <seq>        Read the message with this sequence number, as text
   --max-body <n>      Truncate a shown message body to n characters
   --json              Output JSON instead of text
@@ -30,6 +31,7 @@ Options:
 
 Examples:
   IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com
+  IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --unseen
   IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --show 42
 `;
 
@@ -70,6 +72,7 @@ async function main(): Promise<number> {
         "no-tls": { type: "boolean", default: false },
         mailbox: { type: "string" },
         limit: { type: "string", short: "n" },
+        unseen: { type: "boolean", default: false },
         show: { type: "string" },
         "max-body": { type: "string" },
         json: { type: "boolean", default: false },
@@ -113,8 +116,14 @@ async function main(): Promise<number> {
       process.stdout.write(values.json ? JSON.stringify(mail, null, 2) + "\n" : renderMessage(mail, color, maxBody));
     } else {
       const limit = values.limit ? Number(values.limit) : 10;
-      const messages = await listRecent(client, count, limit);
-      process.stdout.write(values.json ? JSON.stringify(messages, null, 2) + "\n" : renderList(messages, color));
+      const messages = values.unseen ? await listUnseen(client, limit) : await listRecent(client, count, limit);
+      if (values.json) {
+        process.stdout.write(JSON.stringify(messages, null, 2) + "\n");
+      } else if (values.unseen && messages.length === 0) {
+        process.stdout.write("(no unread messages)\n");
+      } else {
+        process.stdout.write(renderList(messages, color));
+      }
     }
   } catch (err) {
     process.stderr.write(`error: ${(err as Error).message}\n`);

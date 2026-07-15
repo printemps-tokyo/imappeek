@@ -1,6 +1,6 @@
 /** High-level mailbox operations built on the IMAP client and MIME parser. */
 import { ImapClient, type ImapOptions } from "./imap.js";
-import { extractFirstLiteral, latin1, parseExists } from "./protocol.js";
+import { extractFirstLiteral, latin1, parseExists, parseSearch } from "./protocol.js";
 import { parseHeaderBlock } from "./headers.js";
 import { parseEml } from "./mime.js";
 import { headerValue } from "./mail.js";
@@ -40,22 +40,38 @@ export async function openMailbox(
   return { client, count };
 }
 
+/** Fetch the list-view summary (headers and flags) for one message. */
+async function fetchSummary(client: ImapClient, seq: number): Promise<MessageSummary> {
+  const res = await client.fetch(String(seq), "(FLAGS BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])");
+  const literal = extractFirstLiteral(res.raw);
+  const headers = literal ? parseHeaderBlock(latin1(literal)) : [];
+  return {
+    seq,
+    date: headerValue(headers, "date"),
+    from: headerValue(headers, "from"),
+    subject: headerValue(headers, "subject"),
+    seen: isSeen(latin1(res.raw)),
+  };
+}
+
 /** List the most recent `n` messages (headers only), newest first. */
 export async function listRecent(client: ImapClient, count: number, n: number): Promise<MessageSummary[]> {
   const summaries: MessageSummary[] = [];
   const hi = count;
   const lo = Math.max(1, count - n + 1);
   for (let seq = hi; seq >= lo; seq--) {
-    const res = await client.fetch(String(seq), "(FLAGS BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])");
-    const literal = extractFirstLiteral(res.raw);
-    const headers = literal ? parseHeaderBlock(latin1(literal)) : [];
-    summaries.push({
-      seq,
-      date: headerValue(headers, "date"),
-      from: headerValue(headers, "from"),
-      subject: headerValue(headers, "subject"),
-      seen: isSeen(latin1(res.raw)),
-    });
+    summaries.push(await fetchSummary(client, seq));
+  }
+  return summaries;
+}
+
+/** List up to `n` unread messages (SEARCH UNSEEN), newest first. */
+export async function listUnseen(client: ImapClient, n: number): Promise<MessageSummary[]> {
+  const res = await client.search("UNSEEN");
+  const ids = parseSearch(latin1(res.raw)).sort((a, b) => b - a).slice(0, n);
+  const summaries: MessageSummary[] = [];
+  for (const seq of ids) {
+    summaries.push(await fetchSummary(client, seq));
   }
   return summaries;
 }

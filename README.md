@@ -51,6 +51,7 @@ npm link   # optional: puts the `imappeek` command on your PATH
 ```bash
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com -n 20
+IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --unseen
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --show 42
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --mailbox Sent --json
 ```
@@ -64,6 +65,7 @@ IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --ma
 | `--no-tls` | Use a plaintext connection (not recommended) |
 | `--mailbox <name>` | Mailbox to open (default: `INBOX`) |
 | `-n, --limit <n>` | How many recent messages to list (default: 10) |
+| `--unseen` | List only unread messages (IMAP `SEARCH UNSEEN`) |
 | `--show <seq>` | Read the message with this sequence number, as text |
 | `--max-body <n>` | Truncate a shown message body to n characters |
 | `--json` | Output JSON instead of text |

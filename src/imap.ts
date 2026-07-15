@@ -142,6 +142,11 @@ export class ImapClient {
     return this.command(`FETCH ${sequence} ${items}`);
   }
 
+  /** Run a SEARCH with the given criteria, e.g. "UNSEEN". */
+  search(criteria: string): Promise<CommandResult> {
+    return this.command(`SEARCH ${criteria}`);
+  }
+
   async logout(): Promise<void> {
     try {
       if (!this.failure) await this.command("LOGOUT");
