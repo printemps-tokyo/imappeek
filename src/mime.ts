@@ -34,6 +34,66 @@ function param(headerLine: string, name: string): string | undefined {
   return m[2] ?? m[3];
 }
 
+/** Percent-decode an RFC 2231 extended value segment to raw bytes. */
+function percentDecodeToBytes(encoded: string): number[] {
+  const bytes: number[] = [];
+  for (let i = 0; i < encoded.length; i++) {
+    if (encoded[i] === "%" && /^[0-9a-fA-F]{2}$/.test(encoded.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(encoded.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(encoded.charCodeAt(i) & 0xff);
+    }
+  }
+  return bytes;
+}
+
+/**
+ * Extract a parameter honoring RFC 2231 extended syntax: a single extended
+ * value (`name*=charset'lang'percent-encoded`) or numbered continuations
+ * (`name*0*=...; name*1*=...`, mixing extended and plain segments). The
+ * charset label from the first extended segment decodes the collected bytes,
+ * so multibyte characters split across segments survive. Falls back to the
+ * plain `name=value` form.
+ */
+function paramRfc2231(headerLine: string, name: string): string | undefined {
+  // Numbered continuations: name*0= / name*0*= ... collected in order.
+  const contRe = new RegExp(`${name}\\*(\\d+)(\\*)?\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "gi");
+  const segments: { n: number; extended: boolean; value: string }[] = [];
+  for (let m = contRe.exec(headerLine); m !== null; m = contRe.exec(headerLine)) {
+    segments.push({ n: Number(m[1]), extended: m[2] === "*", value: m[3] ?? m[4] ?? "" });
+  }
+  if (segments.length > 0) {
+    segments.sort((a, b) => a.n - b.n);
+    let charset = "";
+    const bytes: number[] = [];
+    for (const [i, seg] of segments.entries()) {
+      let value = seg.value;
+      if (seg.extended && i === 0) {
+        const label = /^([^']*)'[^']*'([\s\S]*)$/.exec(value);
+        if (label) {
+          charset = label[1]!;
+          value = label[2]!;
+        }
+      }
+      bytes.push(...(seg.extended ? percentDecodeToBytes(value) : [...value].map((c) => c.charCodeAt(0) & 0xff)));
+    }
+    return decodeBytes(new Uint8Array(bytes), charset || "utf-8");
+  }
+
+  // Single extended value: name*=charset'lang'percent-encoded.
+  const single = new RegExp(`${name}\\*\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "i").exec(headerLine);
+  if (single) {
+    const raw = single[1] ?? single[2] ?? "";
+    const label = /^([^']*)'[^']*'([\s\S]*)$/.exec(raw);
+    const charset = label ? label[1]! : "";
+    const encoded = label ? label[2]! : raw;
+    return decodeBytes(new Uint8Array(percentDecodeToBytes(encoded)), charset || "utf-8");
+  }
+
+  return param(headerLine, name);
+}
+
 interface Accum {
   text?: string;
   html?: string;
@@ -81,12 +141,12 @@ function walk(headers: Header[], body: string, acc: Accum): void {
     return;
   }
 
-  const filename = param(disposition, "filename") ?? param(contentType, "name");
+  const filename = paramRfc2231(disposition, "filename") ?? paramRfc2231(contentType, "name");
   const isAttachment = /attachment/i.test(disposition) || (filename !== undefined && !mediaType.startsWith("text/"));
   const bytes = decodePartBytes(body, cte);
 
-  if (isAttachment && filename) {
-    acc.attachments.push({ filename, contentType: mediaType, size: bytes.length });
+  if (isAttachment) {
+    acc.attachments.push({ filename: filename ?? "(unnamed)", contentType: mediaType, size: bytes.length });
     return;
   }
 
@@ -96,8 +156,10 @@ function walk(headers: Header[], body: string, acc: Accum): void {
     if (acc.html === undefined) acc.html = text;
   } else if (mediaType === "text/plain") {
     if (acc.text === undefined) acc.text = text;
-  } else if (filename) {
-    acc.attachments.push({ filename, contentType: mediaType, size: bytes.length });
+  } else {
+    // A leaf part that is neither text nor an explicit attachment must still
+    // be listed so it never silently vanishes.
+    acc.attachments.push({ filename: filename ?? "(unnamed)", contentType: mediaType, size: bytes.length });
   }
 }
 
