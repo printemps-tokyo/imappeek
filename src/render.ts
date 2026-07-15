@@ -1,14 +1,16 @@
 /** Render a message list or a single message as text or JSON. Pure. */
 import type { Mail } from "./mail.js";
 import type { MessageSummary } from "./session.js";
+import { padToWidth, truncateToWidth } from "./width.js";
 
 function paint(text: string, code: string, color: boolean): string {
   return color ? `\x1b[${code}m${text}\x1b[0m` : text;
 }
 
+/** Collapse whitespace, then truncate to `width` display cells (CJK-aware). */
 function clip(s: string, width: number): string {
   const oneLine = s.replace(/\s+/g, " ").trim();
-  return oneLine.length > width ? `${oneLine.slice(0, width - 1)}…` : oneLine;
+  return truncateToWidth(oneLine, width);
 }
 
 /** Render the recent-message list as an aligned table. */
@@ -17,9 +19,9 @@ export function renderList(messages: MessageSummary[], color: boolean): string {
   const lines: string[] = [];
   for (const m of messages) {
     const mark = m.seen ? "  " : paint("* ", "33", color);
-    const idx = paint(`#${m.seq}`.padEnd(6), "90", color);
-    const date = (m.date ? shortDate(m.date) : "").padEnd(17);
-    const from = clip(m.from ?? "(unknown)", 26).padEnd(26);
+    const idx = paint(padToWidth(`#${m.seq}`, 6), "90", color);
+    const date = padToWidth(m.date ? shortDate(m.date) : "", 17);
+    const from = padToWidth(clip(m.from ?? "(unknown)", 26), 26);
     const subject = m.seen ? clip(m.subject ?? "", 44) : paint(clip(m.subject ?? "", 44), "1", color);
     lines.push(`${mark}${idx}${date}  ${from}  ${subject}`);
   }
@@ -42,7 +44,7 @@ function shortDate(raw: string): string {
 export function renderMessage(mail: Mail, color: boolean, maxBody?: number): string {
   const lines: string[] = [];
   const field = (name: string, value?: string): void => {
-    if (value && value.trim() !== "") lines.push(`${paint(`${name}:`.padEnd(9), "36", color)}${value}`);
+    if (value && value.trim() !== "") lines.push(`${paint(padToWidth(`${name}:`, 9), "36", color)}${value}`);
   };
   field("Date", mail.date);
   field("From", mail.from);
