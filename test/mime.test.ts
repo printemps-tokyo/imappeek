@@ -84,6 +84,32 @@ describe("attachment filename decoding", () => {
     expect(mail.attachments.map((a) => a.filename)).toEqual(["café.txt"]);
   });
 
+  it("does not read filename*= when looking for the name parameter", () => {
+    // Without a boundary anchor, searching for `name` used to match inside
+    // `filename*=`, inventing a name from an unrelated parameter.
+    const mail = parseEml(
+      emlWithAttachment([
+        "Content-Type: application/pdf; filename*=UTF-8''x%20y.pdf",
+        "Content-Transfer-Encoding: base64",
+      ]),
+    );
+    expect(mail.attachments).toHaveLength(1);
+    expect(mail.attachments[0]!.filename).toBe("(unnamed)");
+  });
+
+  it("does not match a parameter whose name merely ends with the queried one", () => {
+    const mail = parseEml(
+      emlWithAttachment([
+        "Content-Type: application/pdf",
+        "Content-Disposition: attachment;",
+        " xfilename*0*=UTF-8''alias%20value",
+        "Content-Transfer-Encoding: base64",
+      ]),
+    );
+    expect(mail.attachments).toHaveLength(1);
+    expect(mail.attachments[0]!.filename).toBe("(unnamed)");
+  });
+
   it("never drops an attachment without an extractable filename", () => {
     const mail = parseEml(
       emlWithAttachment([

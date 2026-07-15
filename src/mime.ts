@@ -28,7 +28,7 @@ function latin1ToBytes(s: string): Uint8Array {
 
 /** Extract the value of a Content-Type / Content-Disposition parameter. */
 function param(headerLine: string, name: string): string | undefined {
-  const re = new RegExp(`${name}\\s*=\\s*("([^"]*)"|([^;\\s]+))`, "i");
+  const re = new RegExp(`(?:^|[;\\s])${name}\\s*=\\s*("([^"]*)"|([^;\\s]+))`, "i");
   const m = re.exec(headerLine);
   if (!m) return undefined;
   return m[2] ?? m[3];
@@ -58,7 +58,7 @@ function percentDecodeToBytes(encoded: string): number[] {
  */
 function paramRfc2231(headerLine: string, name: string): string | undefined {
   // Numbered continuations: name*0= / name*0*= ... collected in order.
-  const contRe = new RegExp(`${name}\\*(\\d+)(\\*)?\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "gi");
+  const contRe = new RegExp(`(?:^|[;\\s])${name}\\*(\\d+)(\\*)?\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "gi");
   const segments: { n: number; extended: boolean; value: string }[] = [];
   for (let m = contRe.exec(headerLine); m !== null; m = contRe.exec(headerLine)) {
     segments.push({ n: Number(m[1]), extended: m[2] === "*", value: m[3] ?? m[4] ?? "" });
@@ -82,7 +82,7 @@ function paramRfc2231(headerLine: string, name: string): string | undefined {
   }
 
   // Single extended value: name*=charset'lang'percent-encoded.
-  const single = new RegExp(`${name}\\*\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "i").exec(headerLine);
+  const single = new RegExp(`(?:^|[;\\s])${name}\\*\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, "i").exec(headerLine);
   if (single) {
     const raw = single[1] ?? single[2] ?? "";
     const label = /^([^']*)'[^']*'([\s\S]*)$/.exec(raw);
