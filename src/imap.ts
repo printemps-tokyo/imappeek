@@ -29,6 +29,12 @@ export class ImapClient {
   private buffer: Uint8Array = new Uint8Array(0);
   private tagCounter = 0;
   private waiter: { tag: string; resolve: (r: CommandResult) => void; reject: (e: Error) => void } | undefined;
+  /** Rejects the connect() promise while the greeting is still pending. */
+  private greetingReject: ((e: Error) => void) | undefined;
+  /** First fatal connection error; every later command fails fast with it. */
+  private failure: ImapError | undefined;
+  /** True once logout() starts tearing the connection down on purpose. */
+  private ending = false;
   private readonly timeoutMs: number;
 
   constructor(private readonly options: ImapOptions) {
@@ -39,13 +45,14 @@ export class ImapClient {
   connect(): Promise<void> {
     const port = this.options.port ?? (this.options.tls === false ? 143 : 993);
     return new Promise((resolve, reject) => {
-      const onError = (err: Error): void => reject(new ImapError(`connection failed: ${err.message}`));
+      this.greetingReject = reject;
       const greetingWaiter = (): void => {
         // The greeting is an untagged line; treat "* OK" as ready.
         const idx = indexOfCrlf(this.buffer);
         if (idx === -1) return;
         const line = latin1Slice(this.buffer, 0, idx);
         this.buffer = this.buffer.subarray(idx + 2);
+        this.greetingReject = undefined;
         if (/^\* (OK|PREAUTH)/.test(line)) resolve();
         else reject(new ImapError(`server refused: ${line}`));
       };
@@ -56,7 +63,10 @@ export class ImapClient {
           : tlsConnect({ host: this.options.host, port, servername: this.options.host });
       this.socket = socket;
       socket.setTimeout(this.timeoutMs, () => socket.destroy(new ImapError("timed out")));
-      socket.once("error", onError);
+      // Persistent handlers: a drop, timeout, or clean server close must reject
+      // whatever is waiting instead of crashing (unhandled 'error') or hanging.
+      socket.on("error", (err: Error) => this.fail(new ImapError(`connection failed: ${err.message}`)));
+      socket.on("close", () => this.fail(new ImapError("connection closed by server")));
       socket.on("data", (chunk: Buffer) => {
         this.buffer = concat(this.buffer, new Uint8Array(chunk));
         if (this.waiter) this.tryComplete();
@@ -67,6 +77,22 @@ export class ImapClient {
         /* wait for greeting via data handler */
       });
     });
+  }
+
+  /**
+   * Record a fatal connection error and reject whoever is waiting (the pending
+   * command or the greeting). A teardown initiated by logout() is not a failure.
+   */
+  private fail(err: ImapError): void {
+    if (this.ending) return;
+    if (!this.failure) this.failure = err;
+    const w = this.waiter;
+    this.waiter = undefined;
+    const g = this.greetingReject;
+    this.greetingReject = undefined;
+    w?.reject(this.failure);
+    g?.(this.failure);
+    this.socket?.destroy();
   }
 
   private tryComplete(): void {
@@ -86,6 +112,10 @@ export class ImapClient {
     if (!this.socket) throw new ImapError("not connected");
     const tag = `A${String(++this.tagCounter).padStart(4, "0")}`;
     return new Promise<CommandResult>((resolve, reject) => {
+      if (this.failure) {
+        reject(this.failure);
+        return;
+      }
       this.waiter = { tag, resolve, reject };
       this.socket!.write(`${tag} ${text}\r\n`, "utf8");
       // In case data already buffered.
@@ -114,10 +144,11 @@ export class ImapClient {
 
   async logout(): Promise<void> {
     try {
-      await this.command("LOGOUT");
+      if (!this.failure) await this.command("LOGOUT");
     } catch {
       /* ignore */
     }
+    this.ending = true;
     this.socket?.end();
     this.socket?.destroy();
   }
