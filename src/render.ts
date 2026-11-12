@@ -1,6 +1,7 @@
 /** Render a message list or a single message as text or JSON. Pure. */
 import type { Mail } from "./mail.js";
 import type { MessageSummary } from "./session.js";
+import type { Thread } from "./thread.js";
 import { padToWidth, truncateToWidth } from "./width.js";
 
 function paint(text: string, code: string, color: boolean): string {
@@ -64,5 +65,26 @@ export function renderMessage(mail: Mail, color: boolean, maxBody?: number): str
     lines.push(paint(`--- attachments (${mail.attachments.length}) ---`, "90", color));
     for (const a of mail.attachments) lines.push(`  ${a.filename}  ${a.size} bytes`);
   }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Render conversations: a heading per thread, replies indented by depth. */
+export function renderThreads(threads: Thread<MessageSummary>[], color: boolean): string {
+  if (threads.length === 0) return "(no messages)\n";
+  const lines: string[] = [];
+  for (const t of threads) {
+    const unread = t.items.filter((i) => !i.item.seen).length;
+    const count = paint(`(${t.items.length}${unread ? `, ${unread} unread` : ""})`, "90", color);
+    lines.push(`${paint(clip(t.subject, 60), "1", color)} ${count}`);
+    for (const { item: m, depth } of t.items) {
+      const mark = m.seen ? "  " : paint("* ", "33", color);
+      const indent = "  ".repeat(Math.min(depth, 6));
+      const idx = paint(padToWidth(`#${m.seq}`, 6), "90", color);
+      const date = padToWidth(m.date ? shortDate(m.date) : "", 17);
+      lines.push(`  ${mark}${idx}${date}  ${indent}${clip(m.from ?? "(unknown)", 40 - indent.length)}`);
+    }
+    lines.push("");
+  }
+  lines.push(paint(`${threads.length} conversation(s) (* = unread)`, "90", color));
   return `${lines.join("\n")}\n`;
 }

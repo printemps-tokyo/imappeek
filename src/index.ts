@@ -27,3 +27,7 @@ export { renderList, renderMessage } from "./render.js";
 
 export { parseEml } from "./mime.js";
 export type { Mail, Header, Attachment } from "./mail.js";
+export { buildSearch, hasSearch, imapDate, type SearchOptions, type Segment } from "./search.js";
+export { buildThreads, baseSubject, messageIds, type Thread, type ThreadInput } from "./thread.js";
+export { listSearch } from "./session.js";
+export { renderThreads } from "./render.js";

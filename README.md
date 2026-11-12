@@ -54,6 +54,9 @@ IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com -n 2
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --unseen
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --show 42
 IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --mailbox Sent --json
+IMAP_OAUTH2_TOKEN=ya29... imappeek --oauth2 --host imap.gmail.com --user me@gmail.com
+imappeek ... --from billing@ --since 2026-11-01            # search
+imappeek ... --subject 請求書 --threads                    # non-ASCII search, as conversations
 ```
 
 | Option | Description |
@@ -66,6 +69,10 @@ IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --ma
 | `--mailbox <name>` | Mailbox to open (default: `INBOX`) |
 | `-n, --limit <n>` | How many recent messages to list (default: 10) |
 | `--unseen` | List only unread messages (IMAP `SEARCH UNSEEN`) |
+| `--from`, `--to`, `--subject`, `--text <text>` | Only messages whose header (or, for `--text`, headers or body) contains the text |
+| `--since`, `--before <YYYY-MM-DD>` | Only messages on or after / before a date |
+| `--threads` | Group the listed messages into conversations |
+| `--oauth2` | Log in with an OAuth 2.0 access token from `IMAP_OAUTH2_TOKEN` (SASL `XOAUTH2`) |
 | `--show <seq>` | Read the message with this sequence number, as text |
 | `--max-body <n>` | Truncate a shown message body to n characters |
 | `--json` | Output JSON instead of text |
@@ -75,6 +82,33 @@ Give the password through the `IMAP_PASSWORD` environment variable so it stays
 out of your shell history. Subjects and sender names are decoded from MIME
 encoded-words, and `--show` renders `text/plain` (falling back to HTML converted
 to text) with the attachment list.
+
+### Search
+
+The search options combine (all must match) and run on the server as one IMAP
+`SEARCH`; `-n` then keeps the newest matches. ASCII text is sent as quoted
+strings; text with other characters (a Japanese subject, say) is sent as a
+UTF-8 literal with `CHARSET UTF-8`, as the protocol requires. Servers decide
+how they match (usually case-insensitive substrings), and `--since` / `--before`
+compare the date the server received the message.
+
+### Conversations
+
+`--threads` groups the listed messages client side: a reply is linked to its
+parent through `Message-ID`, `In-Reply-To` and `References`, replies are
+indented under it, and conversations are ordered by their latest message.
+Messages without those headers are grouped by subject with `Re:` / `Fwd:` /
+`返信:` and similar prefixes removed. Only the listed messages are threaded, so
+raise `-n` (or narrow with a search) to see whole conversations.
+
+### OAuth 2.0 (Gmail, Microsoft 365)
+
+Providers that disable passwords for IMAP take an OAuth 2.0 access token
+through SASL `XOAUTH2`. Put the token in `IMAP_OAUTH2_TOKEN` and pass
+`--oauth2`; imappeek sends `AUTHENTICATE XOAUTH2` with
+`user=<--user>^Aauth=Bearer <token>^A^A` (base64) and, when the server rejects
+it, shows the error the server returns. Getting the token (an OAuth client with
+the mail scope, and a refresh flow) is up to you; imappeek never stores it.
 
 ## Security
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { openMailbox, listRecent, listUnseen, showMessage } from "./session.js";
-import { renderList, renderMessage } from "./render.js";
+import { openMailbox, listRecent, listSearch, showMessage } from "./session.js";
+import { renderList, renderMessage, renderThreads } from "./render.js";
+import { buildSearch, hasSearch, type SearchOptions } from "./search.js";
+import { buildThreads } from "./thread.js";
 
 const HELP = `imappeek - peek at recent messages in an IMAP mailbox
 
@@ -22,6 +24,16 @@ Options:
   --mailbox <name>    Mailbox to open (default: INBOX)
   -n, --limit <n>     How many recent messages to list (default: 10)
   --unseen            List only unread messages (IMAP SEARCH UNSEEN)
+  --from <text>       Only messages whose From contains <text> (IMAP SEARCH)
+  --to <text>         ... whose To contains <text>
+  --subject <text>    ... whose Subject contains <text>
+  --text <text>       ... with <text> anywhere in the headers or body
+  --since <date>      ... on or after YYYY-MM-DD
+  --before <date>     ... before YYYY-MM-DD
+                      (search options combine; non-ASCII text works)
+  --threads           Group the listed messages into conversations
+  --oauth2            Log in with an OAuth 2.0 access token (SASL XOAUTH2)
+                      from the IMAP_OAUTH2_TOKEN environment variable
   --show <seq>        Read the message with this sequence number, as text
   --max-body <n>      Truncate a shown message body to n characters
   --json              Output JSON instead of text
@@ -31,6 +43,8 @@ Options:
 
 Examples:
   IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com
+  IMAP_OAUTH2_TOKEN=ya29... imappeek --oauth2 --host imap.gmail.com --user me@gmail.com
+  imappeek ... --from billing@ --since 2026-11-01 --threads
   IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --unseen
   IMAP_PASSWORD=secret imappeek --host imap.example.com --user me@example.com --show 42
 `;
@@ -73,6 +87,14 @@ async function main(): Promise<number> {
         mailbox: { type: "string" },
         limit: { type: "string", short: "n" },
         unseen: { type: "boolean", default: false },
+        oauth2: { type: "boolean", default: false },
+        from: { type: "string" },
+        to: { type: "string" },
+        subject: { type: "string" },
+        text: { type: "string" },
+        since: { type: "string" },
+        before: { type: "string" },
+        threads: { type: "boolean", default: false },
         show: { type: "string" },
         "max-body": { type: "string" },
         json: { type: "boolean", default: false },
@@ -89,9 +111,34 @@ async function main(): Promise<number> {
     process.stderr.write("error: --host and --user are required\n\n" + HELP);
     return 1;
   }
-  const pass = values.pass ?? process.env.IMAP_PASSWORD;
-  if (!pass) {
-    process.stderr.write("error: no password (set IMAP_PASSWORD or pass --pass)\n");
+  let pass: string | undefined;
+  let token: string | undefined;
+  if (values.oauth2) {
+    token = process.env.IMAP_OAUTH2_TOKEN;
+    if (!token) {
+      process.stderr.write("error: --oauth2 reads the access token from IMAP_OAUTH2_TOKEN, which is not set\n");
+      return 1;
+    }
+  } else {
+    pass = values.pass ?? process.env.IMAP_PASSWORD;
+    if (!pass) {
+      process.stderr.write("error: no password (set IMAP_PASSWORD or pass --pass, or use --oauth2)\n");
+      return 1;
+    }
+  }
+  const search: SearchOptions = {
+    unseen: values.unseen,
+    from: values.from,
+    to: values.to,
+    subject: values.subject,
+    text: values.text,
+    since: values.since,
+    before: values.before,
+  };
+  try {
+    if (hasSearch(search)) buildSearch(search);
+  } catch (err) {
+    process.stderr.write(`error: ${(err as Error).message}\n`);
     return 1;
   }
 
@@ -105,7 +152,7 @@ async function main(): Promise<number> {
 
   let client;
   try {
-    const opened = await openMailbox(options, { user: values.user, pass }, mailbox);
+    const opened = await openMailbox(options, { user: values.user, pass, token }, mailbox);
     client = opened.client;
     const count = opened.count;
 
@@ -117,11 +164,15 @@ async function main(): Promise<number> {
       process.stdout.write(values.json ? JSON.stringify(mail, null, 2) + "\n" : renderMessage(mail, color, maxBody));
     } else {
       const limit = values.limit ? Number(values.limit) : 10;
-      const messages = values.unseen ? await listUnseen(client, limit) : await listRecent(client, count, limit);
-      if (values.json) {
+      const searching = hasSearch(search);
+      const messages = searching ? await listSearch(client, search, limit) : await listRecent(client, count, limit);
+      if (values.threads) {
+        const threads = buildThreads(messages);
+        process.stdout.write(values.json ? JSON.stringify(threads, null, 2) + "\n" : renderThreads(threads, color));
+      } else if (values.json) {
         process.stdout.write(JSON.stringify(messages, null, 2) + "\n");
-      } else if (values.unseen && messages.length === 0) {
-        process.stdout.write("(no unread messages)\n");
+      } else if (searching && messages.length === 0) {
+        process.stdout.write(values.unseen && !search.from && !search.to && !search.subject && !search.text && !search.since && !search.before ? "(no unread messages)\n" : "(no matching messages)\n");
       } else {
         process.stdout.write(renderList(messages, color));
       }
